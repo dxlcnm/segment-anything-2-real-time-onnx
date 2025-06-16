@@ -14,7 +14,7 @@ from sam2.modeling.sam.mask_decoder import MaskDecoder
 from sam2.modeling.sam.prompt_encoder import PromptEncoder
 from sam2.modeling.sam.transformer import TwoWayTransformer
 from sam2.modeling.sam2_utils import get_1d_sine_pe, MLP, select_closest_cond_frames
-
+import time
 # a large negative value as a placeholder score for missing objects
 NO_OBJ_SCORE = -1024.0
 
@@ -473,6 +473,7 @@ class SAM2Base(torch.nn.Module):
 
     def forward_image(self, img_batch: torch.Tensor):
         """Get the image feature on the input batch."""
+        time1 = time.time()
         backbone_out = self.image_encoder(img_batch)
         if self.use_high_res_features_in_sam:
             # precompute projected level 0 and level 1 features in SAM decoder
@@ -483,6 +484,8 @@ class SAM2Base(torch.nn.Module):
             backbone_out["backbone_fpn"][1] = self.sam_mask_decoder.conv_s1(
                 backbone_out["backbone_fpn"][1]
             )
+        time2 = time.time()
+        print("image encoder python cost: ", time2 - time1)
         if self.import_onnx:
             cur_vis_feat = backbone_out["vision_features"]
             cur_vis_pos_embed = backbone_out["vision_pos_enc"][-1]
@@ -695,7 +698,7 @@ class SAM2Base(torch.nn.Module):
         # Step 2: Concatenate the memories and forward through the transformer encoder
         memory = torch.cat(to_cat_memory, dim=0)
         memory_pos_embed = torch.cat(to_cat_memory_pos_embed, dim=0)
-
+        time1 = time.time()
         pix_feat_with_mem = self.memory_attention(
             curr=current_vision_feats,
             curr_pos=current_vision_pos_embeds,
@@ -703,6 +706,8 @@ class SAM2Base(torch.nn.Module):
             memory_pos=memory_pos_embed,
             num_obj_ptr_tokens=num_obj_ptr_tokens,
         )
+        time2 = time.time()
+        print("memory attention cost python: ", time2 - time1)
         # reshape the output (HW)BC => BCHW
         pix_feat_with_mem = pix_feat_with_mem.permute(1, 2, 0).view(B, C, H, W)
         
@@ -742,7 +747,7 @@ class SAM2Base(torch.nn.Module):
                                                                             "maskmem_features": maskmem_features.float().cpu().numpy(),
                                                                             "objmem_ptrs": objmem_ptrs.float().cpu().numpy(),
                                                                             "maskmem_pos_enc": maskmem_pos_enc.float().cpu().numpy(),
-                                                                            "objmem_pos_indice": objmem_pos_indice.cpu().numpy(),
+                                                                            "objmem_pos_indice": objmem_pos_indice.float().cpu().numpy(),
                                                                             "num_frames": np.array([num_frames], dtype=np.float32)})
 
             cur_vision_feat_with_mem = torch.from_numpy(cur_vision_feat_with_mem_list[0])
@@ -859,6 +864,7 @@ class SAM2Base(torch.nn.Module):
                 assert point_inputs is not None and mask_inputs is None
                 mask_inputs = prev_sam_mask_logits
             multimask_output = self._use_multimask(is_init_cond_frame, point_inputs)
+            time1 = time.time()
             sam_outputs = self._forward_sam_heads(
                 backbone_features=pix_feat,
                 point_inputs=point_inputs,
@@ -866,6 +872,8 @@ class SAM2Base(torch.nn.Module):
                 high_res_features=high_res_features,
                 multimask_output=multimask_output,
             )
+            time2 = time.time()
+            print("image decoder python cost: ", time2 - time1)
             
             if self.import_onnx:
                 if not is_init_cond_frame:
@@ -923,6 +931,7 @@ class SAM2Base(torch.nn.Module):
     ):
         if run_mem_encoder and self.num_maskmem > 0:
             high_res_masks_for_mem_enc = high_res_masks
+            time1 = time.time()
             maskmem_features, maskmem_pos_enc = self._encode_new_memory(
                 current_vision_feats=current_vision_feats[-1],
                 feat_sizes=feat_sizes,
@@ -930,6 +939,8 @@ class SAM2Base(torch.nn.Module):
                 object_score_logits=object_score_logits,
                 is_mask_from_pts=(point_inputs is not None),
             )
+            time2 = time.time()
+            print("memory encoder in encode memory in output python cost: ", time2-time1)
             current_out["maskmem_features"] = maskmem_features
             current_out["maskmem_pos_enc"] = maskmem_pos_enc
             

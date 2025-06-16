@@ -54,13 +54,15 @@ class SAM2Parameters(nn.Module):
         self.no_obj_embed_spatial = sam_model.no_obj_embed_spatial
     
     def forward(self, dummpy_input: torch.Tensor) -> tuple[Any, Any, Any, Any, Any]:
-        # dummpy_input = torch.empty(1): [1]
+        # not used tensor
+        unused_input = dummpy_input * 0
+        # dummpy_input = torch.ones(1): [1]
         # maskmem_tpos_enc: [7, 1, 1,64]
         # no_mem_embed: [1, 1, 256]
         # no_mem_pos_enc: [1, 1, 256]
         # no_obj_ptr: [1, 256]
         # no_obj_embed_spatial: [1, 64]
-        return self.maskmem_tpos_enc, self.no_mem_embed, self.no_mem_pos_enc, self.no_obj_ptr, self.no_obj_embed_spatial
+        return self.maskmem_tpos_enc, self.no_mem_embed, self.no_mem_pos_enc, self.no_obj_ptr, self.no_obj_embed_spatial + unused_input
 
 class SAM2ImageEncoder(nn.Module):
     def __init__(self, sam_model: SAM2Base) -> None:
@@ -290,7 +292,7 @@ class SAM2MemEncoder(nn.Module):
             feat_sizes = self.feat_sizes,
             pred_masks_high_res=high_res_masks,
             object_score_logits=object_score_logits,
-            is_mask_from_pts=False
+            is_mask_from_pts=True
         )
         # maskmem_features: [1, 64, 64, 64]
         # maskmem_pos_enc: [1, 64, 64, 64]
@@ -484,7 +486,7 @@ if __name__ == "__main__":
         dummpy_input
     )
     
-    # maskmem_tpos_enc: [7, 1, 1,64]
+    # maskmem_tpos_enc: [7, 1, 1, 64]
     # no_mem_embed: [1, 1, 256]
     # no_mem_pos_enc: [1, 1, 256]
     # no_obj_ptr: [1, 256]
@@ -676,7 +678,7 @@ if __name__ == "__main__":
     maskmem_features = torch.rand(64*64*N, 1, 64, dtype=torch.float).to(device)
     objmem_ptrs = torch.rand(N, 1, 256, dtype=torch.float).to(device)
     maskmem_pos_enc = torch.rand(64*64*N, 1, 64, dtype=torch.float).to(device)
-    objmem_pos_indice = torch.randint(low=1, high=10, size=(N,)).to(device)
+    objmem_pos_indice = torch.randint(low=1, high=10, size=(N,), dtype=torch.float).to(device)
     num_frames = torch.tensor([10], dtype=torch.float).to(device)
     
     cur_vision_feat_with_mem = sam2_memory_attention(
@@ -718,15 +720,18 @@ if __name__ == "__main__":
         output_names=["cur_vision_feat_with_mem"],
         dynamic_axes={
             "maskmem_features": {0: "num_memory_frames"},
-            "objmem_ptrs": {0: "num_memory_frames"},
+            "objmem_ptrs": {0: "num_obj_ptr_tokens"},
             "maskmem_pos_enc": {0: "num_memory_frames"},
-            "objmem_pos_indice": {0: "num_memory_frames"},
+            "objmem_pos_indice": {0: "num_obj_ptr_tokens"},
         }
     )
     print("Saved memory attention to", args.output_memory_attention)
     print("Simplifying memory attention...")
     onnx_model = onnx.load(args.output_memory_attention)
+
     model_simp, check = simplify(onnx_model)
+    for input in model_simp.graph.input:
+        print(f"input: {input.name}, SHape: {input.type.tensor_type.shape}")
     assert check, "Simplified ONNX model could not be validated"
     onnx.save(model_simp, args.output_memory_attention)
     print("Saved simplified memory attention to", args.output_memory_attention)

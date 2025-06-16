@@ -9,4 +9,5 @@ _C.*
 outputs/*
 checkpoints/*.pt
 /tmp.py
+output_models/*.onnx
 

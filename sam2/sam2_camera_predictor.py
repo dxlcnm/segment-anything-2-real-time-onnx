@@ -1164,6 +1164,7 @@ class SAM2CameraPredictor(SAM2Base):
         _, _, current_vision_feats, _, feat_sizes = self._get_image_feature(
             frame_idx, batch_size
         )
+        time1 = time.time()
         maskmem_features, maskmem_pos_enc = self._encode_new_memory(
             current_vision_feats=current_vision_feats[-1],
             feat_sizes=feat_sizes,
@@ -1171,6 +1172,8 @@ class SAM2CameraPredictor(SAM2Base):
             object_score_logits=object_score_logits,
             is_mask_from_pts=is_mask_from_pts,
         )
+        time2 = time.time()
+        print("memory encoder cost python: ", time2 - time1)
         
         if self.import_onnx:
             cur_vis_feat = current_vision_feats[-1].permute(1, 2, 0).view(1, 256, self.mem_dim, self.mem_dim)
